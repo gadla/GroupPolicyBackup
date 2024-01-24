@@ -1,29 +1,28 @@
-# Group Policy Backup
+# Group Policy Objects (GPO) Backup Script
 
-This script, `GroupPolicyBackup.ps1`, is designed to backup Group Policy objects (GPOs) in a Windows environment. It allows you to easily create backups of your GPOs, providing an extra layer of protection against accidental changes or deletions.
+This PowerShell script is designed to back up all Group Policy Objects (GPOs) and their associated WMI Filters to a specified location. Each backup is organized into a folder named with the current date, and each GPO is saved in its individual subfolder within the daily backup folder. An HTML report for each GPO is also generated and stored in its respective backup folder.
+
+## Features
+
+- **Backup GPOs:** Each GPO is backed up into its own subfolder within a daily backup folder.
+- **Backup WMI Filters:** All WMI Filters are backed up into a subfolder named "WMI_Filters" within the daily backup folder.
+- **HTML Reports:** Generates an HTML report for each GPO and stores it within the GPO's backup folder.
+- **Automatic Cleanup:** Deletes backup folders older than a specified number of days to manage disk space.
 
 ## Prerequisites
 
-Before using this script, ensure that you have the following:
+- PowerShell 5.1 or higher.
+- Group Policy and Active Directory PowerShell modules.
+- Necessary permissions to access GPOs, WMI Filters, and the backup location.
 
-- Windows PowerShell installed on your system.
-- Sufficient permissions to access and modify Group Policy objects.
+## Parameters
+
+- `BackupPath`: Mandatory. The path to the directory where backups will be stored. The script validates that the path exists and is a directory.
+- `DaysToKeep`: Optional. Specifies the number of days backups should be retained. Older backups will be deleted. Default is 30 days.
 
 ## Usage
 
-To use the `GroupPolicyBackup.ps1` script, follow these steps:
+Run the script with the required `BackupPath` parameter and the optional `DaysToKeep` parameter. For example:
 
-1. Open a PowerShell console or the PowerShell Integrated Scripting Environment (ISE).
-2. Navigate to the directory where the script is located.
-3. Run the script by executing the following command:
-
-    ```powershell
-    .\GroupPolicyBackup.ps1
-    ```
-
-4. The script will prompt you to specify the backup destination folder. Enter the desired path and press Enter.
-5. The script will then proceed to backup all GPOs in your environment to the specified folder.
-
-## Backup Folder Structure
-
-The script creates a folder structure within the specified backup destination folder to organize the GPO backups. The structure is as follows:
+```powershell
+.\GroupPolicyBackup.ps1 -BackupPath "C:\GPOBackups" -DaysToKeep 30
