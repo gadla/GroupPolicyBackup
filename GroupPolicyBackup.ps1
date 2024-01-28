@@ -60,7 +60,7 @@ function Remove-OldBackups {
     param(
         [Parameter(Mandatory = $true,
             HelpMessage = "Enter the full path of the directory where you want to store the GPO and WMI filters backup. The path must exist.")]
-        [ValidateScript({ Test-Path $_ -PathType Container })]
+        [ValidateScript({ Test-DeletePermission -Path $_ })]
         [string]$BackupRootPath, # The root path where all backups are stored.
 
         [int]$RetentionDays # The number of days to retain backups. Folders older than this will be deleted.
@@ -125,6 +125,78 @@ function Backup-GPOFunction {
     Write-Host "Backup and report for GPO '$GPOName' completed."
 }
 
+
+# Function to test if the current user has delete permission on a given path
+function Test-DeletePermission {
+    <#
+    .SYNOPSIS
+        Tests if the current user has delete permission on a given path.
+
+    .DESCRIPTION
+        The Test-DeletePermission function checks if the current user has delete permission on the specified path. It uses the Get-Acl cmdlet to get the Access Control List (ACL) of the path and then checks if the current user has delete permission.
+
+    .PARAMETER Path
+        Specifies the path to test delete permission. This parameter is mandatory.
+
+    .EXAMPLE
+        PS C:\> Test-DeletePermission -Path "C:\SomeFolder"
+        This command tests if the current user has delete permission on the folder "C:\SomeFolder".
+
+    .INPUTS
+        System.String. You can pipe a string that contains the path.
+
+    .OUTPUTS
+        System.Boolean. The function returns $true if the current user has delete permission, otherwise it returns $false.
+
+    .NOTES
+        In case of any errors (like path not found), the function writes a warning and returns $false.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $hasDeletePermission = $false
+
+    # Check if the path exists and is accessible
+    if (-not (Test-Path -Path $Path -ErrorAction SilentlyContinue)) {
+        Write-Warning "Path $Path does not exist or is not accessible."
+        return $false
+    }
+
+    try {
+        # Get the security descriptor for the folder
+        $acl = Get-Acl -Path $Path
+
+        # Get the current user and their groups
+        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $currentUserSid = $currentUser.User.Value
+        $groupSids = $currentUser.Groups | Select-Object -ExpandProperty Value
+
+        # Check if the user has modify (which includes delete) or full control permission
+        foreach ($access in $acl.Access) {
+            if (($access.FileSystemRights -match 'Modify' -or $access.FileSystemRights -match 'FullControl') -and 
+                ($currentUserSid -eq $access.IdentityReference.Value -or $groupSids -contains $access.IdentityReference.Value)) {
+                $hasDeletePermission = $true
+                break
+            }
+        }
+
+        # Additionally check if the user is an administrator
+        $isAdmin = ([System.Security.Principal.WindowsPrincipal]$currentUser).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+        if ($isAdmin) {
+            $hasDeletePermission = $true
+        }
+    }
+    catch {
+        Write-Warning "Unable to get ACL for path $Path : $_"
+    }
+
+    return $hasDeletePermission
+}
+
+
+
 # Create a new folder with the current date
 $DateFolder = Get-Date -Format "yyyy-MM-dd"
 $DailyBackupPath = Join-Path -Path $BackupPath -ChildPath $DateFolder
@@ -143,15 +215,22 @@ $WMIPath = Join-Path -Path $DailyBackupPath -ChildPath "WMI_Filters"
 New-Item -Path $WMIPath -ItemType Directory -Force | Out-Null
 # Get the WMI filters from Active Directory
 $WmiFilters = Get-ADObject -Filter 'objectClass -eq "msWMI-Som"' -Properties msWMI-Author, msWMI-ID, msWMI-Name, msWMI-Parm1, msWMI-Parm2
-if ($WmiFilters -is 'System.Object[]') {
-    # Loop through each filter and export it to a file
-    foreach ($filter in $WmiFilters) {
-        $filter | Export-Clixml -Path "$WMIPath\$($filter.'msWMI-Name').xml"
+if ($null -ne $WmiFilters) {
+    Write-Host "Backing up $($WmiFilters.Count) WMI filters."
+    if ($WmiFilters -is 'System.Object[]') {
+        # Loop through each filter and export it to a file
+        foreach ($filter in $WmiFilters) {
+            $filter | Export-Clixml -Path "$WMIPath\$($filter.'msWMI-Name').xml"
+        }
     }
+    else {
+        $WmiFilters | Export-Clixml -Path "$WMIPath\$($WmiFilters.'msWMI-Name').xml"
+    }
+    Write-Host "WMI Filters backed up to '$WMIPath'."
 }
 else {
-    $WmiFilters | Export-Clixml -Path "$WMIPath\$($WmiFilters.'msWMI-Name').xml"
+    Write-Host "No WMI filters found."
 }
-Write-Host "WMI Filters backed up to '$WMIPath'."
 
+Write-Host "Removing old backups older than $DaysToKeep days."
 Remove-OldBackups -BackupRootPath $BackupPath -RetentionDays $DaysToKeep
